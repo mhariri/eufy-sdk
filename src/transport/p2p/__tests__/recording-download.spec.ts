@@ -112,6 +112,49 @@ describe("recording download", () => {
     expect(out).toMatchObject({ frames: 2, missingFrames: 1 });
   });
 
+  it.each([19, 64_000])("joins authenticated 400000-byte recording chunks with a %i-byte tail", (tailLength) => {
+    const { eccHex, publicKey } = camera();
+    const key = randomBytes(32);
+    const head = Buffer.concat([IDR, Buffer.alloc(400_000 - IDR.length, 0x11)]);
+    const tail = Buffer.alloc(tailLength, 0x22);
+    const out = decodeRecording(
+      [keyframe(key, publicKey, head, 0, 0), keyframe(key, publicKey, tail, 0, 0), plainFrame(slice(1), 1, 67)],
+      eccHex,
+    );
+
+    expect(out.video).toEqual(Buffer.concat([head, tail, slice(1)]));
+    expect(out).toMatchObject({ frames: 2, missingFrames: 0, durationMs: 67 });
+  });
+
+  it("holds consecutive full recording chunks until the final short chunk", () => {
+    const { eccHex, publicKey } = camera();
+    const key = randomBytes(32);
+    const head = Buffer.concat([IDR, Buffer.alloc(400_000 - IDR.length, 0x11)]);
+    const middle = Buffer.alloc(400_000, 0x22);
+    const tail = Buffer.alloc(19, 0x33);
+    const out = decodeRecording(
+      [
+        keyframe(key, publicKey, head, 0, 0),
+        keyframe(key, publicKey, middle, 0, 0),
+        keyframe(key, publicKey, tail, 0, 0),
+      ],
+      eccHex,
+    );
+
+    expect(out.video).toEqual(Buffer.concat([head, middle, tail]));
+    expect(out).toMatchObject({ frames: 1, missingFrames: 0 });
+  });
+
+  it("omits a 400000-byte recording picture when its tail is missing", () => {
+    const { eccHex, publicKey } = camera();
+    const key = randomBytes(32);
+    const head = Buffer.concat([IDR, Buffer.alloc(400_000 - IDR.length, 0x11)]);
+    const out = decodeRecording([keyframe(key, publicKey, head, 0, 0), plainFrame(slice(1), 1, 67)], eccHex);
+
+    expect(out.video).toEqual(slice(1));
+    expect(out).toMatchObject({ frames: 1, missingFrames: 1 });
+  });
+
   it("drops a keyframe sealed for another camera, and the audio that depends on it", () => {
     const { eccHex } = camera();
     const other = camera();

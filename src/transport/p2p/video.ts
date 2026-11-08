@@ -198,16 +198,20 @@ export interface AssembledAccessUnit {
  */
 export const STATION_CHUNK_BYTES = 64000;
 
+/** Payload size filled by the T8030 archive transfer, each part independently authenticated. */
+const ARCHIVE_CHUNK_BYTES = 400_000;
+
 /**
  * Reassembles a `CMD_VIDEO_FRAME` access unit the station split across several frames.
  *
  * Each frame declares only the payload IT carries ({@link VideoFrameHeader.payloadLength}), so the unit's
- * total length is nowhere on the wire and cannot be waited for. What the wire does carry, verified on two
- * models:
+ * total length is nowhere on the wire and cannot be waited for. Live streams and T8030 archive transfers
+ * carry these framing facts:
  *
  *  - the frames of one unit **repeat its {@link VideoFrameHeader.sequence}**, and carry the unit's timestamp
  *    or one stamped up to `SPLIT_UNIT_STAMP_SPREAD_MS` later;
- *  - every frame of a split unit is filled to {@link STATION_CHUNK_BYTES} except the last;
+ *  - the first full frame declares the split size: {@link STATION_CHUNK_BYTES} for measured live streams
+ *    or 400000 bytes for T8030 archive video; subsequent full parts repeat that size;
  *  - a frame that STARTS a unit begins with an Annex-B start code once decoded, and a continuation begins
  *    mid-NAL, so it does not.
  *
@@ -224,7 +228,7 @@ export const STATION_CHUNK_BYTES = 64000;
  * truncation and produces no picture at all.
  *
  * Two consequences worth stating. A unit that is exactly the threshold long, or an exact multiple of it,
- * ends on a full frame and is dropped as truncated — one frame in ~64000, reported, and the alternative is
+ * ends on a full frame and is dropped as truncated, reported, and the alternative is
  * handing a decoder bytes that may genuinely be short. And a station that fills to some OTHER size is not
  * recognised: its units stay exactly as they arrive rather than being mis-joined.
  */
@@ -256,12 +260,12 @@ export class AccessUnitAssembler {
       this.discard();
       return [];
     }
-    const full = header.payloadLength === STATION_CHUNK_BYTES;
+    const full = header.payloadLength === STATION_CHUNK_BYTES || header.payloadLength === ARCHIVE_CHUNK_BYTES;
     const open = this.open;
     if (open && sameUnit(open.header, header) && !beginsAccessUnit(body)) {
       open.chunks.push(body);
       open.carried += body.length;
-      if (full) return [];
+      if (header.payloadLength === open.header.payloadLength) return [];
       this.open = undefined;
       return [unitOf(open.header, Buffer.concat(open.chunks))];
     }
