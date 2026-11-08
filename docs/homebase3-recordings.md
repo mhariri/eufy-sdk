@@ -320,6 +320,14 @@ days in a separate session succeeded. This is an operational observation, not pr
 HomeBase connection limit or its cause. Preserve a per-day checkpoint rather than interpreting
 a failed query as an empty day.
 
+### Rows without downloadable video
+
+Calendar-linked metadata can include rows whose `storage_path` is empty and whose `frame_num`
+and `folder_size` are both zero. Preserve these as metadata observations, but exclude them from
+video download requests and video-count completeness checks. Do not hash an empty path into a
+shared recording ID or send an empty download filepath. An unexpected row with video frames or
+bytes but no path needs investigation rather than silent exclusion.
+
 ## Remaining verification before an SDK change
 
 1. Extend the verified GCM-wrapped 10008 / 10011 queries to pagination beyond a single page,
